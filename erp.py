@@ -11,6 +11,8 @@ NOME_BD = "estoque.db"
 def conectar_bd():
     return sqlite3.connect(NOME_BD)
 
+
+
 # Inicializar o banco de dados
 def inicializar_bd():
     conn = conectar_bd()
@@ -62,8 +64,6 @@ def inicializar_bd():
 
 
 
-
-
 # Atualizar a grid principal
 def atualizar_grid(filtro=""):
     conn = conectar_bd()
@@ -80,7 +80,6 @@ def atualizar_grid(filtro=""):
         estoque_tree.insert("", "end", values=row)
 
     conn.close()
-
 
 
 
@@ -102,6 +101,8 @@ def exportar_excel():
 
     conn.close()
 
+
+
 def exportar_Saidas():
     conn = conectar_bd()
     cursor = conn.cursor()
@@ -118,6 +119,8 @@ def exportar_Saidas():
         messagebox.showinfo("Sucesso", "Relatório exportado com sucesso!")
 
     conn.close()
+
+
 
 def exportar_Entradas():
     conn = conectar_bd()
@@ -148,7 +151,7 @@ def exibir_estatisticas():
 
     if data:
         descricoes, quantidades = zip(*data)
-        plt.bar(descricoes, quantidades)
+        plt.barh(descricoes, quantidades)
         plt.title("Estoque Atual por Item")
         plt.xlabel("codigo")
         plt.ylabel("Quantidade")
@@ -160,19 +163,64 @@ def exibir_estatisticas():
 
     conn.close()
 
+
+
 # Validação de entrada para números
 def validar_numero(texto):
     return texto.isdigit() or texto == ""
 
 
 
+janelas_abertas = {}
+
+
+
+# Função genérica para abrir uma janela
+def abrir_janela(nome, titulo, tamanho, criador_func):
+    """
+    Gerencia a abertura de janelas únicas.
+    
+    :param nome: Nome identificador único da janela
+    :param titulo: Título da janela
+    :param tamanho: Tamanho da janela (ex: "400x300")
+    :param criador_func: Função que cria o conteúdo da janela
+    """
+    global janelas_abertas
+    # Verificar se a janela já está aberta
+    if nome in janelas_abertas and janelas_abertas[nome].winfo_exists():
+        # Trazer janela para frente
+        janelas_abertas[nome].lift()
+        return janelas_abertas[nome]
+    
+    # Criar uma nova janela
+    janela = tk.Toplevel(root)
+    janela.title(titulo)
+    janela.geometry(tamanho)
+    
+    # Adicionar ao dicionário de janelas abertas
+    janelas_abertas[nome] = janela
+    
+    # Quando a janela for fechada, remover do dicionário
+    janela.protocol("WM_DELETE_WINDOW", lambda: fechar_janela(nome))
+    
+    # Chamar a função para criar o conteúdo da janela
+    criador_func(janela)
+    return janela
+
+
+
+# Função para fechar uma janela e atualizar o dicionário
+def fechar_janela(nome):
+    global janelas_abertas
+    if nome in janelas_abertas:
+        janelas_abertas[nome].destroy()
+        del janelas_abertas[nome]
+
+
 
 # Funções para os botões principais
-def janela_cadastro_itens():
-    janela = tk.Toplevel(root)
-    janela.title("Cadastrar Itens")
-    janela.geometry("600x400")
-
+def janela_cadastro_itens(janela):
+    
     # Configuração da tabela editável
     frame_tabela = tk.Frame(janela)
     frame_tabela.pack(fill="both", expand=True, padx=10, pady=10)
@@ -249,11 +297,7 @@ def janela_cadastro_itens():
     
     
     
-    
-def janela_entrada_produtos():
-    janela = tk.Toplevel(root)
-    janela.title("Entrada de Produtos")
-    janela.geometry("400x300")
+def janela_entrada_produtos(janela):
 
     tk.Label(janela, text="Código:").pack(pady=5)
     codigo_entry = ttk.Entry(janela)
@@ -291,17 +335,89 @@ def janela_entrada_produtos():
         finally:
             conn.close()
             atualizar_grid()
+    def entrada_massa():
+        janela = tk.Toplevel(root)
+        janela.title("Entrada em massa")
+        janela.geometry("600x400")
+        frame_tabela = tk.Frame(janela)
+        frame_tabela.pack(fill="both", expand=True, padx=10, pady=10)
 
+        tabela = ttk.Treeview(frame_tabela, columns=("codigo", "quantidade", "posicao"), show="headings")
+        tabela.heading("codigo", text="Código")
+        tabela.heading("quantidade", text="Quantidade")
+        tabela.heading("posicao", text="Posição")
+        tabela.pack(fill="both", expand=True)
+
+        # Adicionar um scrollbar
+        scrollbar = ttk.Scrollbar(frame_tabela, orient="vertical", command=tabela.yview)
+        tabela.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+
+        def editar_celula(event):
+            # Editar célula ao clicar
+            item = tabela.identify('item', event.x, event.y)
+            column = tabela.identify_column(event.x)
+            if item and column:
+                col_index = int(column.replace('#', '')) - 1
+                old_value = tabela.item(item, 'values')[col_index]
+
+                def salvar_edicao(event):
+                    tabela.set(item, column=col_index, value=entry.get())
+                    entry.destroy()
+
+                entry = ttk.Entry(frame_tabela)
+                entry.insert(0, old_value)
+                entry.bind('<Return>', salvar_edicao)
+                entry.place(x=event.x, y=event.y)
+
+        tabela.bind('<Double-1>', editar_celula)
+
+        def colar_dados():
+            # Pegar dados do clipboard e colar na grid
+            try:
+                dados_clipboard = root.clipboard_get()
+                linhas = dados_clipboard.split('\n')
+                for linha in linhas:
+                    if linha.strip():
+                        tabela.insert("", "end", values=linha.split('\t'))
+            except Exception as e:
+                messagebox.showerror("Erro", f"Falha ao colar dados: {e}")
+
+        def salvar_tabela():
+            # Salvar os dados para o banco
+            conn = conectar_bd()
+            cursor = conn.cursor()
+
+            for item in tabela.get_children():
+                codigo, quantidade, posicao = tabela.item(item, "values")
+                if not codigo or not quantidade or not posicao:
+                    continue
+                try:
+                    cursor.execute("INSERT INTO Entradas (codigo, quantidade, data, posicao) VALUES (?, ?, ?, ?)",
+                                (codigo, int(quantidade), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), posicao))
+                    cursor.execute("INSERT INTO ControleEstoque (codigo, descricao, quantidade, posicao) VALUES (?, (SELECT descricao FROM BancoDeDados WHERE codigo=?), ?, ?) "
+                                "ON CONFLICT(codigo, posicao) DO UPDATE SET quantidade=quantidade + ?",
+                                (codigo, codigo, int(quantidade), posicao, int(quantidade)))
+                    conn.commit()
+                    
+                except sqlite3.IntegrityError:
+                    messagebox.showerror("Erro", f"Código '{codigo}' já está cadastrado!")
+            conn.commit()
+            conn.close()
+            messagebox.showinfo("Sucesso", "Itens cadastrados com sucesso!")
+            atualizar_grid()
+            janela.destroy()
+        # Botões
+        frame_botoes = tk.Frame(janela)
+        frame_botoes.pack(pady=10)
+        ttk.Button(frame_botoes, text="Colar Dados (Ctrl+V)", command=colar_dados).pack(side="left", padx=5)
+        ttk.Button(frame_botoes, text="Salvar Itens", command=salvar_tabela).pack(side="right", padx=5)
     ttk.Button(janela, text="Registrar", command=registrar_entrada).pack(pady=20)
+    ttk.Button(janela, text="Cadastro em massa", command=entrada_massa).pack(pady=20)
 
 
 
-
-
-def janela_saida_produtos():
-    janela = tk.Toplevel(root)
-    janela.title("Saída de Produtos")
-    janela.geometry("400x400")
+def janela_saida_produtos(janela):
 
     tk.Label(janela, text="Código:").pack(pady=5)
     codigo_entry = ttk.Entry(janela)
@@ -357,14 +473,8 @@ def janela_saida_produtos():
 
 
 
+def consulta_saldo(janela):
 
-
-
-def consulta_saldo():
-    # Criar a janela principal
-    janela = tk.Toplevel(root)
-    janela.title("Consulta de Saldo")
-    janela.geometry("800x350")
 
     # Rótulo e campo de entrada para os códigos do produto
     tk.Label(janela, text="Digite os Códigos dos Produtos (separados por vírgula):").pack(pady=5)
@@ -429,15 +539,9 @@ def consulta_saldo():
 
 
 
-
-
-
 # Função para atualizar o estoque
-def janela_editar_estoque():
-    # Janela principal para buscar produto
-    janela = tk.Toplevel(root)
-    janela.title("Editar Estoque")
-    janela.geometry("400x400")
+def janela_editar_estoque(janela):
+
 
     # Função para buscar produto
     def buscar_produto():
@@ -575,15 +679,15 @@ def janela_editar_estoque():
     
     
     
-def historico_entradas():
+def historico_entradas(janela):
+
     conn = conectar_bd()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM Entradas")
     resultados = cursor.fetchall()
     conn.close()
 
-    janela = tk.Toplevel(root)
-    janela.title("Histórico de Entradas")
+
 
     tree = ttk.Treeview(janela, columns=("id", "codigo", "quantidade", "data", "posicao"), show="headings")
     tree.heading("id", text="ID")
@@ -606,15 +710,14 @@ def historico_entradas():
 
 
 
-def historico_saidas():
+def historico_saidas(janela):
+
     conn = conectar_bd()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM Saidas")
     resultados = cursor.fetchall()
     conn.close()
 
-    janela = tk.Toplevel(root)
-    janela.title("Histórico de Saídas")
 
     tree = ttk.Treeview(janela, columns=("id", "codigo", "quantidade", "data", "posicao", "solicitante"), show="headings")
     tree.heading("id", text="ID")
@@ -660,25 +763,25 @@ frame_controles = tk.Frame(root)
 frame_controles.pack(side="left", fill="y", padx=10, pady=10)
 
 # Botões principais
-botao_cadastrar = ttk.Button(frame_controles, text="Cadastrar Itens", command=janela_cadastro_itens)
-botao_cadastrar.pack(fill="x", pady=5)
+botao_cadastrar = ttk.Button(frame_controles, text="Cadastrar Itens",
+                             command= lambda: abrir_janela("cadastro_itens","Cadastro produtos","600x400", janela_cadastro_itens)).pack(fill="x", pady=5)
 
-botao_entrada = ttk.Button(frame_controles, text="Entrada de Produtos", command=janela_entrada_produtos)
+botao_entrada = ttk.Button(frame_controles, text="Entrada de Produtos", command= lambda: abrir_janela("entrada_produtos","Entrada produtos","600x400", janela_entrada_produtos))
 botao_entrada.pack(fill="x", pady=5)
 
-botao_saida = ttk.Button(frame_controles, text="Saída de Produtos", command=janela_saida_produtos)
+botao_saida = ttk.Button(frame_controles, text="Saída de Produtos", command=lambda: abrir_janela("saida_produtos","Saída produtos","600x400", janela_saida_produtos))
 botao_saida.pack(fill="x", pady=5)
 
-botao_consulta = ttk.Button(frame_controles, text="Consulta de Saldo", command=consulta_saldo)
+botao_consulta = ttk.Button(frame_controles, text="Consulta de Saldo", command=lambda: abrir_janela("consulta_saldo","Consultar saldo","800x500", consulta_saldo))
 botao_consulta.pack(fill="x", pady=5)
 
-botao_editar = ttk.Button(frame_controles, text="Editar Posição/Estoque", command=janela_editar_estoque)
+botao_editar = ttk.Button(frame_controles, text="Editar Posição/Estoque", command=lambda: abrir_janela("editar_estoque","Editar estoque","600x400", janela_editar_estoque))
 botao_editar.pack(fill="x", pady=5)
 
-botao_entradas = ttk.Button(frame_controles, text="Histórico de Entradas", command=historico_entradas)
+botao_entradas = ttk.Button(frame_controles, text="Histórico de Entradas", command=lambda: abrir_janela("historico_entrada","Histório entradas de produtos","1250x600", historico_entradas))
 botao_entradas.pack(fill="x", pady=5)
 
-botao_saidas = ttk.Button(frame_controles, text="Histórico de Saídas", command=historico_saidas)
+botao_saidas = ttk.Button(frame_controles, text="Histórico de Saídas", command=lambda: abrir_janela("historico_saida","Histório saídas de produtos","1250x600", historico_saidas))
 botao_saidas.pack(fill="x", pady=5)
 
 
